@@ -1,0 +1,87 @@
+#!/bin/bash
+
+proxy=10.30.0.1 #Set the proxy address
+port=8080       #Set the port
+config=$1
+
+apt="/etc/apt/apt.conf.d/proxy.conf"
+
+function show_help() {
+    echo "Usage: proxifier [OPTION]
+        -s,  --set      set-up the proxy
+        -u,  --unset    unset the proxy
+        -c,  --current  shows the currently set proxy settings
+        -h,  --help     show this help menu
+
+        With no OPTIONS it assumes proxifier --current 
+"
+}
+
+function current_set() {
+    echo "git proxy set to:"
+    git config --global --get http.proxy
+    echo "npm proxy set to:"
+    npm config get proxy
+    echo "apt proxy set to:"
+    cat ${apt}
+}
+
+function git_proxy() {
+    git config --global http.proxy http://${proxy}:${port}
+    echo "git proxy set to:"
+    git config --global --get http.proxy
+}
+
+function npm_proxy() {
+    npm config set proxy http://${proxy}:${port}
+    echo "npm proxy set to:"
+    npm config get proxy
+}
+
+function apt_proxy() {
+    cat /dev/null >$apt
+    echo "Acquire::http::Proxy \"http://${proxy}:${port}\";" >>$apt
+    echo "Acquire::https::Proxy \"https://${proxy}:${port}\";" >>$apt
+    echo "apt proxy set to:"
+    cat ${apt}
+}
+
+function remove_proxy() {
+    cat /dev/null >$apt
+
+    cat ${apt}
+    git config --global --unset http.proxy
+    npm config delete proxy
+
+}
+
+if ! [ $(id -u) = 0 ]; then
+    show_help
+    echo "The script needs to be run as root.
+   try $ sudo proxifier [OPTION]
+   Exiting...
+   " >&2
+    exit 1
+fi
+
+if [ "$config" == "--set" ] || [ "$config" == "-s" ]; then
+    echo "Changing proxy settings to ${proxy}:${port}"
+    git_proxy
+    npm_proxy
+    apt_proxy
+
+elif [ "$config" == "--unset" ] || [ "$config" == "-u" ]; then
+    echo "Removing proxies"
+    remove_proxy
+
+elif [ "$config" == "--current" ] || [ "$config" == "-c" ]; then
+    current_set
+
+elif [ "$config" == "--help" ] || [ "$config" == "-h" ]; then
+    show_help
+
+else
+    show_help
+    current_set
+
+fi
