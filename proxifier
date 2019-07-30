@@ -1,9 +1,11 @@
 #!/bin/bash
 
-proxy=10.30.0.1 #Set the proxy address
-port=8080       #Set the port
+route=10.30.0.1 #Change me
+port=8080 #Change me
+proxy=${route}:${port} #Set the proxy address and port
 config=$1
-
+BASHRC=$(readlink -f $HOME/.bashrc)
+ENV="/etc/environment"
 apt="/etc/apt/apt.conf.d/proxy.conf"
 
 function show_help() {
@@ -18,41 +20,83 @@ function show_help() {
 }
 
 function current_set() {
-    echo "git proxy set to:"
-    git config --global --get http.proxy
-    echo "npm proxy set to:"
-    npm config get proxy
-    echo "apt proxy set to:"
-    cat ${apt}
+    echo "git proxy set to: $(git config --global --get http.proxy)
+    "
+    echo "npm proxy set to: $(npm config get proxy)
+    "
+    echo "apt proxy set to: $(cat ${apt})
+    "
+    mode="$(gsettings get org.gnome.system.proxy mode)"
+    echo "gsettings proxy set to: ${mode}"
+    if [ "${mode}" == "'manual'" ]; then
+    echo "$(gsettings get org.gnome.system.proxy.https host):$(gsettings get org.gnome.system.proxy.https port)"
+    fi
+
 }
 
 function git_proxy() {
-    git config --global http.proxy http://${proxy}:${port}
-    echo "git proxy set to:"
-    git config --global --get http.proxy
+    git config --global http.proxy http://${proxy}
 }
 
 function npm_proxy() {
-    npm config set proxy http://${proxy}:${port}
-    echo "npm proxy set to:"
-    npm config get proxy
+    npm config set proxy http://${proxy}
 }
 
 function apt_proxy() {
     cat /dev/null >$apt
-    echo "Acquire::http::Proxy \"http://${proxy}:${port}\";" >>$apt
-    echo "Acquire::https::Proxy \"https://${proxy}:${port}\";" >>$apt
-    echo "apt proxy set to:"
-    cat ${apt}
+    echo "Acquire::http::Proxy \"http://${proxy}\";" >>$apt
+    echo "Acquire::https::Proxy \"https://${proxy}\";" >>$apt
+}
+
+function set_env_proxy() {
+    for type in "http" "https"; do
+        sed -i "/${type}_proxy\=/d" $ENV
+    done
+
+    if [ "$config" == "--unset" ] || [ "$config" == "-u" ]; then
+        return
+    elif [ "$config" == "--set" ] || [ "$config" == "-s" ]; then
+        echo "http_proxy=\"http://${proxy}/\"" >>$ENV
+        echo "https_proxy=\"https://${proxy}/\"" >>$ENV
+    fi
+
+}
+
+function set_bash_proxy() {
+    for type in "http" "https"; do
+        sed -i "/export ${type}_proxy\=/d" $BASHRC
+    done
+
+    if [ "$config" == "--unset" ] || [ "$config" == "-u" ]; then
+        return
+    elif [ "$config" == "--set" ] || [ "$config" == "-s" ]; then
+        echo "export http_proxy=\"http://${proxy}/\"" >>$BASHRC
+        echo "export https_proxy=\"https://${proxy}/\"" >>$BASHRC
+    fi
+
+}
+
+function gsettings_proxy() {
+    gsettings set org.gnome.system.proxy mode 'manual'
+
+    gsettings set org.gnome.system.proxy.http port ${port}
+    gsettings set org.gnome.system.proxy.http host ${route}
+
+    gsettings set org.gnome.system.proxy.https port ${port}
+    gsettings set org.gnome.system.proxy.https host ${route}
 }
 
 function remove_proxy() {
-    cat /dev/null >$apt
 
+    set_bash_proxy
+    set_env_proxy
+
+    cat /dev/null >$apt
     cat ${apt}
     git config --global --unset http.proxy
     npm config delete proxy
 
+    gsettings set org.gnome.system.proxy mode 'none'
 }
 
 if ! [ $(id -u) = 0 ]; then
@@ -65,10 +109,14 @@ if ! [ $(id -u) = 0 ]; then
 fi
 
 if [ "$config" == "--set" ] || [ "$config" == "-s" ]; then
-    echo "Changing proxy settings to ${proxy}:${port}"
+    echo "Changing proxy settings to ${proxy}"
+    set_bash_proxy
+    set_env_proxy
+    gsettings_proxy
+    apt_proxy
     git_proxy
     npm_proxy
-    apt_proxy
+    current_set
 
 elif [ "$config" == "--unset" ] || [ "$config" == "-u" ]; then
     echo "Removing proxies"
